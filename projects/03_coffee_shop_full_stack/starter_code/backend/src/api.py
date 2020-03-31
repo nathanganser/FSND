@@ -16,7 +16,7 @@ CORS(app)
 !! NOTE THIS WILL DROP ALL RECORDS AND START YOUR DB FROM SCRATCH
 !! NOTE THIS MUST BE UNCOMMENTED ON FIRST RUN
 '''
-db_drop_and_create_all()
+# db_drop_and_create_all()
 
 ## ROUTES
 '''
@@ -29,17 +29,22 @@ db_drop_and_create_all()
 '''
 
 
-@app.route('drinks')
+@app.route('/drinks', methods=['GET'])
 def get_drinks():
-    drinks = Drink.query.all()
-    formatted_drinks = []
-    for drink in drinks:
-        formatted_drinks.append(drink.short())
+    try:
+        available_drinks = Drink.query.all()
+        drinks = [drink.short() for drink in available_drinks]
+        print(drinks)
+        return jsonify({
+            'success': True,
+            'drinks': drinks
+        })
 
-    return jsonify({
-        'success': True,
-        'drinks': formatted_drinks
-    })
+    except:
+        return jsonify({
+            'success': False,
+            'message': "The drink is not formatted correctly and can't be shown"
+        })
 
 
 '''
@@ -51,6 +56,27 @@ def get_drinks():
         or appropriate status code indicating reason for failure
 '''
 
+
+@app.route('/drinks-detail', methods=['GET'])
+@requires_auth('get:drinks-detail')
+def get_drink_details(payload):
+    try:
+        available_drinks = Drink.query.all()
+        drinks = [drink.long() for drink in available_drinks]
+        print(drinks)
+        return jsonify({
+            'success': True,
+            'drinks': drinks
+        })
+
+
+    except:
+        return jsonify({
+            'success': False,
+            'message': "The drink is not formatted correctly and can't be shown"
+        })
+
+
 '''
 @TODO implement endpoint
     POST /drinks
@@ -60,6 +86,38 @@ def get_drinks():
     returns status code 200 and json {"success": True, "drinks": drink} where drink an array containing only the newly created drink
         or appropriate status code indicating reason for failure
 '''
+
+
+@app.route('/drinks', methods=['POST'])
+@requires_auth('post:drinks')
+def new_drink(payload):
+    try:
+        new_recipe = request.json.get('recipe')
+        new_title = request.json.get('title')
+        # check if drink already exists
+        existing_drinks = Drink.query.all()
+        for drink in existing_drinks:
+            if drink.title == new_title:
+                return jsonify({
+                    'success': False,
+                    'message': "A drink with this title already exists"
+                })
+
+        new_drink = Drink(title=new_title,
+                          recipe=json.dumps(new_recipe))
+        new_drink.insert()
+
+        return jsonify({
+            'success': True,
+            'drinks': Drink.long(new_drink)
+        })
+
+    except:
+        return jsonify({
+            'success': False,
+            'message': 'An unknown error happened'
+        })
+
 
 '''
 @TODO implement endpoint
@@ -73,6 +131,46 @@ def get_drinks():
         or appropriate status code indicating reason for failure
 '''
 
+
+@app.route('/drinks/<int:drink_id>', methods=['PATCH'])
+@requires_auth('post:drinks')
+def update_drink(payload, drink_id):
+    try:
+        # Check if drink exists
+        drink_exists = False
+        existing_drinks = Drink.query.all()
+        for drink in existing_drinks:
+            if drink.id == drink_id:
+                drink_exists = True
+
+        if not drink_exists:
+            return jsonify({
+                'success': False,
+                'message': 'This drink does not exist',
+                'drinks': []
+            })
+
+        drink = Drink.query.filter_by(id=drink_id).one()
+        if request.json.get('title') is not None:
+            drink.title = json.dumps(request.json.get('title'))
+
+        if request.json.get('recipe') is not None:
+            drink.recipe = json.dumps(request.json.get('recipe'))
+
+        drink.update()
+        print(drink.short())
+
+        return jsonify({
+            'success': True,
+            'drinks': [Drink.long(drink)]
+        })
+    except:
+        return jsonify({
+            'success': False,
+            'message': 'An unknown error occured.'
+        })
+
+
 '''
 @TODO implement endpoint
     DELETE /drinks/<id>
@@ -83,6 +181,39 @@ def get_drinks():
     returns status code 200 and json {"success": True, "delete": id} where id is the id of the deleted record
         or appropriate status code indicating reason for failure
 '''
+
+
+@app.route('/drinks/<int:drink_id>', methods=['DELETE'])
+@requires_auth('delete:drinks')
+def delete_drink(payload, drink_id):
+    try:
+        # Check if drink exists
+        drink_exists = False
+        existing_drinks = Drink.query.all()
+        for drink in existing_drinks:
+            if drink.id == drink_id:
+                drink_exists = True
+
+        if not drink_exists:
+            return jsonify({
+                'success': False,
+                'message': 'This drink does not exist'
+            })
+
+        drink = Drink.query.filter_by(id=drink_id).one()
+
+        drink.delete()
+
+        return jsonify({
+            'success': True,
+            'delete': drink_id
+        })
+    except:
+        return jsonify({
+            'success': False,
+            'message': 'An unknown error occured.'
+        })
+
 
 ## Error Handling
 '''
@@ -115,7 +246,26 @@ def unprocessable(error):
     error handler should conform to general task above 
 '''
 
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({
+        "success": False,
+        "error": 404,
+        "message": "Ressource could not be found"
+    }), 404
+
+
 '''
 @TODO implement error handler for AuthError
     error handler should conform to general task above 
 '''
+
+
+@app.errorhandler(AuthError)
+def auth_error(error):
+    return jsonify({
+        "success": False,
+        'error': error.status_code,
+        "message": error.error,
+    }), error.status_code
